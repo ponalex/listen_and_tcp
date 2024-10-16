@@ -1,0 +1,6 @@
+tests/
+test_*
+*.raw
+*.log
+*.a
+docs/*.txt
