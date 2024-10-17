@@ -46,10 +46,11 @@ struct connection{
     log_message* message;
 };
 
-
+void get_message_time(char* text, size_t text_length);
 void* log_function(void *data);
 void* send_function(void* data);
 void logging(log_message* message, char* text, enum log_level level, int data);
+void stop_logging(void);
 void timespec_to_str(struct timespec tm, char* buffer, size_t buffer_size);
 
 void lib_init_mutex();

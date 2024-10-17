@@ -7,7 +7,10 @@
 #include <time.h>
 #include <string.h>
 
+#define TEXT_LENGTH 128
+
 pthread_mutex_t mutex;
+volatile int keep_going = 1;
 
 void timespec_to_str(struct timespec tmspc, char *buffer, size_t buffer_size){
     time_t seconds = tmspc.tv_sec;
@@ -15,7 +18,13 @@ void timespec_to_str(struct timespec tmspc, char *buffer, size_t buffer_size){
     unsigned int m_seconds = tmspc.tv_nsec / 1000000;
     struct tm *ptr_tm  = localtime(&seconds);
     size_t time_size = strftime(buffer, buffer_size, "%e-%b-%Y %H:%M:%S", ptr_tm);
-    snprintf(buffer+strlen(buffer), buffer_size-strlen(buffer), ".%03u", m_seconds); 
+    snprintf(buffer+strlen(buffer), buffer_size - time_size, ".%03u", m_seconds); 
+}
+
+void get_message_time(char* text, size_t text_length){
+    struct timespec current_time;
+    timespec_get(&current_time, TIME_UTC);
+    timespec_to_str(current_time, text, text_length);
 }
 
 void lib_init_mutex(){
@@ -29,7 +38,11 @@ void lib_destroy_mutex(){
 void log_to_file(char* filename,
                 enum log_level level,
                 log_message* message){ 
+    char log_time[TEXT_LENGTH];
+    get_message_time(log_time, TEXT_LENGTH);
     if(message->level > level){
+        message->level = 0;
+        message->value = 0;
         return;
     }
     if(strlen(filename)==0){
@@ -41,7 +54,7 @@ void log_to_file(char* filename,
         perror("[ERROR] Could not open the file.!\n");
         return;
     }
-    int result = 0;
+    fprintf(log_file, "Time: %s", log_time);
     switch (message->level){
         case CRITICAL: 
             fprintf(log_file, "[CRITICAL]%s, Error: %d\n", message->message, message->value);
@@ -63,9 +76,6 @@ void log_to_file(char* filename,
             break;
     }
     fclose(log_file);
-    result = message->level;
-    message->value = 0;
-    message->value =0;
 }
 
 void log_to_console(enum log_level level,
@@ -75,7 +85,9 @@ void log_to_console(enum log_level level,
         message->value = 0;
         return;
     }
-    int result = 0;
+    char log_time[TEXT_LENGTH];
+    get_message_time(log_time, TEXT_LENGTH);
+    printf("Time: %s ", log_time);
     switch (message->level){
         case CRITICAL:
             printf("[CRITICAL]%s, Error: %d\n", message->message, message->value);
@@ -96,9 +108,6 @@ void log_to_console(enum log_level level,
             printf("[UNKNOWN ERROR] Something went wrong!\n");
             break;
     }
-    result = message->level;
-    message->level = 0;
-    message->value = 0;
 }
 
 void* send_function(void* data){
@@ -142,6 +151,9 @@ void* send_function(void* data){
     return 0;
 }
 
+void stop_logging(){
+    keep_going = 0;
+}
 
 void* log_function(void *data){
     log_argument* arguments = (log_argument* )data;
@@ -150,8 +162,7 @@ void* log_function(void *data){
         perror("[CRITICAL]Couldn't allocate memory for storing \'log_message\'");
         return NULL;
     }
-    int status = 0;
-    while(status > ERROR){
+    while(keep_going){
         pthread_mutex_lock(&mutex);
         if(message->level == 0 || message->level < arguments->message->level){
             memcpy(message, arguments->message, sizeof(log_message));
@@ -159,7 +170,6 @@ void* log_function(void *data){
             arguments->message->value = 0;
         }
         pthread_mutex_unlock(&mutex);
-        status = message->level;
         switch(arguments->output){
             case LOG_FILE:
                 log_to_file(arguments->filename, arguments->level, message);
@@ -172,9 +182,10 @@ void* log_function(void *data){
                 log_to_file(arguments->filename, arguments->level, message);
                 break;
         }       
+        message->value = 0;
+        message->value =0;
     }
     free(message);
-    printf("Stop logging.\n");
     return NULL;
 }
 

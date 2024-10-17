@@ -9,3 +9,9 @@ test: main.c src/pa_wrapper.c src/my_lib.c
 
 listen: listener.c src/my_lib.c src/pa_wrapper.c 
 	gcc -o listen $^ $(OPT_FILES) $(OPTS)
+
+
+debug: listener.c src/my_lib.c src/pa_wrapper.c 
+	gcc -ggdb -o listen $^ $(OPT_FILES) $(OPTS) -Wall -pedantic
+
+#-fsanitize=leak

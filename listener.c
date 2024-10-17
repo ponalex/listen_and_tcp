@@ -4,6 +4,7 @@
 #include <bits/getopt_core.h>
 #include <bits/pthreadtypes.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -12,7 +13,7 @@
 #define GETOPT_OPTIONS "L:i:cfbB:a:p:v:h"
 #define LOG_FILENAME "log_file.log"
 #define LOG_DEFAULT_LEVEL WARNING
-#define LOG_DEFAULT_OUTPUT CONSOLE
+#define LOG_DEFAULT_OUTPUT BOTH
 #define CONNECT_BUFFER_LENGTH 1024
 #define CONNECT_MESSAGE_LENGTH 128
 #define CONNECT_DEFAULT_ADDRESS "127.0.0.1"
@@ -33,11 +34,22 @@ float sensivity =SOUND_VOLUME;
 PaStream *sound_stream;
 pthread_t log_thread;
 
-void stop_log_thread(pthread_t l_thread){
-    lib_destroy_mutex();
-    pthread_cancel(l_thread);
-    pthread_join(l_thread, NULL);
+
+void stop_and_leave(){
+    exit (0);
 }
+
+void stop_log_thread(){
+    printf("Stop logging!\n");
+    stop_logging();
+    pthread_join(log_thread, NULL);
+}
+
+void stop_pa_thread(){
+    printf("Stop pa_thread!\n");
+    quit_stream(sound_stream);
+}
+
 
 pthread_t send_thread;
 /*  Options: "L:i:cfbB:a:p:"
@@ -49,11 +61,6 @@ pthread_t send_thread;
  *           -p <number> port number
  */
 
-void get_message_time(char* text, size_t text_length){
-    struct timespec current_time;
-    timespec_get(&current_time, TIME_UTC);
-    timespec_to_str(current_time, text, text_length);
-}
 
 void set_configuration(int argc, char** argv){
     logging_arg.filename = LOG_FILENAME; 
@@ -104,6 +111,11 @@ void set_configuration(int argc, char** argv){
 
 int main(int argc, char** argv){
     set_configuration(argc, argv);
+    signal(SIGINT, stop_and_leave);
+    if(list_microphones() == 0 ){
+        perror("There is no any microphone!\n");
+        return -1;
+    }
     // Init Logging
     log_message log_data= {.value = 0, .level=0, .message = "Ok."};
     logging_arg.message = &log_data;
@@ -112,38 +124,37 @@ int main(int argc, char** argv){
     lib_init_mutex();
     if(pthread_create(&log_thread,
                       NULL,
-                      log_function, 
+                      log_function,
                       (void*)&logging_arg) != 0){
         perror("[CRITICAL] Couldn't create a thread for logging!");
         lib_destroy_mutex();
-        return -1;
+        exit (-1);
     }
+    atexit(stop_log_thread);
     // Init PortAudio
     PaStreamParameters input_params;
+    input_params.channelCount = SOUND_NUM_CHANNELS;
+    input_params.sampleFormat = SOUND_PA_TYPE;
     int status = pa_configuration(&input_params);
     if(status < 0){
-        // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         logging(&log_data, (char*)Pa_GetErrorText(status), CRITICAL, status);
-        stop_log_thread(log_thread);
-        return status;
+        exit(status);
     }
     // Set configuration to Port Audio
     struct configuration sound_confid;
     sound_confid.flags = paClipOff;
     sound_confid.sample_rate = SOUND_SAMPLE_RATE;
     sound_confid.frames_per_buffer = SOUND_BUFFER_SIZE;
-    float sound[SOUND_BUFFER_SIZE] = {0};
     sound_block sound_data ={.level = sensivity, .value = 0};
     status = create_stream(&sound_stream, &input_params, sound_confid, (void*)&sound_data);
     if ( status < 0){
         logging(&log_data, (char*)Pa_GetErrorText(status), CRITICAL, status);
-        stop_log_thread(log_thread);
-        return status;
+        exit (status);
     }
+    atexit(stop_pa_thread);               //  Stop reading microphone
     // Init Sending to server
     status = pthread_create(&send_thread, NULL, send_function, (void*)&connection_arg);
     // Run do-while loop
-    float sum = 0;
     char message_to_server[CONNECT_MESSAGE_LENGTH] = {0};
     uint counter = 0;
     do{
@@ -151,7 +162,6 @@ int main(int argc, char** argv){
             continue;
         }else{
             if(counter < SKIP_N_FIRST){
-                sum = 0;
                 ++counter;
                 continue;
             }
@@ -168,25 +178,13 @@ int main(int argc, char** argv){
             sound_data.value = 0;
         }
     }while(1);
-    //  Check if pthread for sending messages is running
-    //  Stop it
-    //  Stop PortAddress
-    //  Stop Logging
-
-    printf("Filename: %s\n", logging_arg.filename);
-    printf("Level of logging: %d\n", logging_arg.level);
-    printf("Output to : %d\n", logging_arg.output);
-
-    printf("%d\n",connection_arg.buffer_length);
-    printf("Address: %s\n", connection_arg.address);
-    printf("Port: %d\n", connection_arg.port);
     
     status = quit_stream(&sound_stream);
     if (status < 0){
         logging(&log_data, (char*)Pa_GetErrorText(status), WARNING, status);
         usleep(DELAY_USECONDS);
     }
-    stop_log_thread(log_thread);
+    stop_log_thread();
 
     return 0;
 }

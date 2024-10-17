@@ -28,5 +28,5 @@ int create_stream(PaStream** stream,
         struct configuration config,
         void* data);
 
-int quit_stream(PaStream** stream);
-
+int quit_stream(PaStream* stream);
+int list_microphones();
