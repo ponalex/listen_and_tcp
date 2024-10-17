@@ -28,30 +28,34 @@
 
 #define SKIP_N_FIRST 2
 
+//  The global variable to configure  a programm
 log_argument logging_arg;
 struct connection connection_arg;
 float sensivity =SOUND_VOLUME;
 PaStream *sound_stream;
 pthread_t log_thread;
+pthread_t send_thread;
 
-
+//  Declare this funtion to exit on pressing CTR-C
 void stop_and_leave(){
     exit (0);
 }
 
+//  Declare one by one function to stop processes according
+//  to their declaration but in reverse order
+//  Stop logging
 void stop_log_thread(){
     printf("Stop logging!\n");
     stop_logging();
     pthread_join(log_thread, NULL);
 }
-
+//  Stop listening the volume
 void stop_pa_thread(){
     printf("Stop pa_thread!\n");
     quit_stream(sound_stream);
 }
 
 
-pthread_t send_thread;
 /*  Options: "L:i:cfbB:a:p:"
  *           -L <filename>
  *           -i <number>
@@ -61,7 +65,7 @@ pthread_t send_thread;
  *           -p <number> port number
  */
 
-
+//  Set configuration using function optarg
 void set_configuration(int argc, char** argv){
     logging_arg.filename = LOG_FILENAME; 
     logging_arg.level = LOG_DEFAULT_LEVEL;
@@ -110,18 +114,22 @@ void set_configuration(int argc, char** argv){
 }
 
 int main(int argc, char** argv){
+
     set_configuration(argc, argv);
+    //  Declare signal for exit
     signal(SIGINT, stop_and_leave);
+    //  Checking microphone
     if(list_microphones() == 0 ){
         perror("There is no any microphone!\n");
         return -1;
     }
-    // Init Logging
+    // Init variable for logging
     log_message log_data= {.value = 0, .level=0, .message = "Ok."};
     logging_arg.message = &log_data;
     connection_arg.message = &log_data;
     // pthread_t   log_thread;
     lib_init_mutex();
+    // Launch the thread which loggs 
     if(pthread_create(&log_thread,
                       NULL,
                       log_function,
@@ -130,17 +138,20 @@ int main(int argc, char** argv){
         lib_destroy_mutex();
         exit (-1);
     }
+
     atexit(stop_log_thread);
     // Init PortAudio
+    //  This should be placed in the separate file
     PaStreamParameters input_params;
     input_params.channelCount = SOUND_NUM_CHANNELS;
     input_params.sampleFormat = SOUND_PA_TYPE;
+    //  Initialization port audio
     int status = pa_configuration(&input_params);
     if(status < 0){
         logging(&log_data, (char*)Pa_GetErrorText(status), CRITICAL, status);
         exit(status);
     }
-    // Set configuration to Port Audio
+    // Set configuration device to Port Audio
     struct configuration sound_confid;
     sound_confid.flags = paClipOff;
     sound_confid.sample_rate = SOUND_SAMPLE_RATE;
@@ -153,9 +164,10 @@ int main(int argc, char** argv){
     }
     atexit(stop_pa_thread);               //  Stop reading microphone
     // Init Sending to server
-    status = pthread_create(&send_thread, NULL, send_function, (void*)&connection_arg);
+    // status = pthread_create(&send_thread, NULL, send_function, (void*)&connection_arg);
     // Run do-while loop
     char message_to_server[CONNECT_MESSAGE_LENGTH] = {0};
+    // It is used to skip 2 first buffer due to it has a big level of noise
     uint counter = 0;
     do{
         if(sound_data.value == 0){
@@ -166,13 +178,17 @@ int main(int argc, char** argv){
                 continue;
             }
             if (sound_data.value > 0){
-                logging(&log_data, "Send data.", INFORMATION, 0);
+//                logging(&log_data, "Send data.", INFORMATION, 0);
+                //  Get time to send to the server
                 get_message_time(message_to_server,CONNECT_MESSAGE_LENGTH);
+                //  Push text to the block which will be sent to the server
                 connection_arg.data = message_to_server;
                 connection_arg.data_size =strlen(message_to_server)+1;
+                //  Sending to server/ If error occurs the will be noticed in the logger
                 if(pthread_create(&send_thread, NULL, send_function, (void*)&connection_arg)!=0){
                     logging(&log_data, "Couldn't send message to server.", WARNING, 0);
                 }
+                //  Sleep to avoid multiply sending
                 usleep(DELAY_USECONDS);
             }
             sound_data.value = 0;

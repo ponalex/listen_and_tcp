@@ -5,6 +5,7 @@
 
 #define NORMALISATION 32768.0f
 
+//  Function to pass to the stream audio
 static int audio_callback(
             const void *input_buffer, 
             void *output_buffer,
@@ -35,12 +36,14 @@ static int audio_callback(
     return paContinue;
 }
 
-void quit_port_audio(char* message, PaError err){
-   Pa_Terminate();
-   fprintf(stderr, "%s\n", message);
-   fprintf(stderr, "Error message: %s\n", Pa_GetErrorText(err));
-}
+// C
+//void quit_port_audio(char* message, PaError err){
+//   Pa_Terminate();
+//   fprintf(stderr, "%s\n", message);
+//   fprintf(stderr, "Error message: %s\n", Pa_GetErrorText(err));
+//}
 
+// Initialize PortAudio
 int pa_configuration(PaStreamParameters *in_params){
     PaError err;
     err = Pa_Initialize();
@@ -61,6 +64,7 @@ int pa_configuration(PaStreamParameters *in_params){
     return err;
 }
 
+//  Create and launch a stream
 int create_stream(  PaStream **stream,
                     PaStreamParameters *in_params,
                     struct configuration config,
@@ -110,7 +114,7 @@ int quit_stream(PaStream *stream){
     return err;
 }
 
-
+//  Check if is there an available microphone
 int list_microphones() {
     int card = -1;
     int counter = 0;
